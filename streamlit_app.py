@@ -2,44 +2,38 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from pathlib import Path
-
-# Install dependencies as needed:
-# pip install kagglehub[pandas-datasets]
-import kagglehub
-from kagglehub import KaggleDatasetAdapter
-import pandas as pd # Import pandas for direct CSV reading
+import plotly.express as px
+import plotly.graph_objects as go
+from collections import Counter
 import os
 
-# Define the base path for the Kaggle dataset in Colab
-kaggle_dataset_path = "/kaggle/input/spotify-user-behavior-and-pattern"
-file_name = "spotify_user_behavior_realistic_50000_rows.csv" # Corrected file name
-full_file_path = os.path.join(kaggle_dataset_path, file_name)
+# Configuración de la página
+st.set_page_config(
+    page_title="Dashboard Spotify",
+    page_icon="🎵",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# List files in the dataset directory to verify the file name
-print(f"Files in {kaggle_dataset_path}:")
-for root, dirs, files in os.walk(kaggle_dataset_path):
-    for f in files:
-        print(os.path.join(root, f))
+# Estilo personalizado
+st.markdown("""
+    <style>
+    .main {
+        padding-top: 0rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Load the dataset directly using pandas from the mounted path
-try:
-    df = pd.read_csv(full_file_path)
-    print("Dataset loaded successfully using pandas.")
-except FileNotFoundError:
-    print(f"Error: The file '{file_name}' was not found at '{kaggle_dataset_path}'. Please check the filename or path.")
-    df = pd.DataFrame() # Initialize an empty DataFrame to avoid further errors
-except Exception as e:
-    print(f"An error occurred while loading the dataset: {e}")
-    df = pd.DataFrame() # Initialize an empty DataFrame on other errors
-
-
-print("First 5 records:", df.head())
-
-if not df.empty:
-    print("Iniciando limpieza del dataset...")
-
-    # Renombrar las columnas a español y en formato snake_case
+# Cargar datos
+@st.cache_data
+def load_and_clean_data():
+    """Cargar y limpiar los datos de Spotify"""
+    file_path = "spotify_user_behavior_realistic_50000_rows.csv"
+    
+    # Cargar dataset
+    df = pd.read_csv(file_path)
+    
+    # Renombrar columnas a español
     column_mapping = {
         'user_id': 'id_usuario',
         'country': 'pais',
@@ -61,131 +55,315 @@ if not df.empty:
         'avg_skips_per_day': 'saltos_promedio_por_dia'
     }
     df.rename(columns=column_mapping, inplace=True)
-    print("Columnas renombradas exitosamente.")
+    
+    # Rellenar valores nulos
+    if 'horas_escucha_promedio_por_semana' in df.columns:
+        df.loc[:, 'horas_escucha_promedio_por_semana'] = df['horas_escucha_promedio_por_semana'].fillna(
+            df['horas_escucha_promedio_por_semana'].mean()
+        )
+    
+    # Convertir fecha_registro a datetime
+    df['fecha_registro'] = pd.to_datetime(df['fecha_registro'])
+    
+    # Eliminar duplicados
+    df.drop_duplicates(subset=['id_usuario'], inplace=True)
+    
+    return df
 
-    # 1. Rellenar valores nulos con la media para 'horas_escucha_promedio_por_semana'
-    for col in ['horas_escucha_promedio_por_semana']:
-        if col in df.columns and df[col].isnull().any():
-            mean_val = df[col].mean()
-            df[col].fillna(mean_val, inplace=True)
-            print(f"Valores nulos en '{col}' rellenados con la media: {mean_val:.2f}")
-        elif col not in df.columns:
-            print(f"Advertencia: La columna '{col}' no se encontró en el DataFrame.")
+# Cargar datos
+df = load_and_clean_data()
 
-    # 2. La columna 'fecha_registro' ya está en formato fecha (datetime64[ns]) y sin nulos.
-    print("Columna 'fecha_registro' ya está en formato fecha.")
+# =======================
+# HEADER
+# =======================
+col1, col2 = st.columns([1, 4])
+with col1:
+    st.image("https://img.icons8.com/color/96/000000/spotify.png", width=80)
+with col2:
+    st.title("🎵 Dashboard de Comportamiento de Usuarios Spotify")
+    st.markdown("*Análisis y visualización del comportamiento e interacciones de usuarios*")
 
-    # 3. Crear una nueva columna 'User_LTV'
-    # Las columnas 'meses_suscripcion' y 'precio_plan' no se encontraron en el DataFrame.
-    if 'meses_suscripcion' in df.columns and 'precio_plan' in df.columns:
-        df['User_LTV'] = df['meses_suscripcion'] * df['precio_plan']
-        print("Columna 'User_LTV' creada exitosamente.")
-    else:
-        print("Advertencia: No se pudieron crear 'User_LTV'. Las columnas 'meses_suscripcion' y/o 'precio_plan' no se encontraron en el DataFrame.")
+st.divider()
 
-    # 4. Eliminar filas donde el 'id_usuario' esté duplicado
-    if 'id_usuario' in df.columns:
-        initial_rows = df.shape[0]
-        df.drop_duplicates(subset=['id_usuario'], inplace=True)
-        rows_after_dropping = df.shape[0]
-        if initial_rows > rows_after_dropping:
-            print(f"Se eliminaron {initial_rows - rows_after_dropping} filas duplicadas basadas en 'id_usuario'.")
-            print(f"Filas restantes en el DataFrame: {rows_after_dropping}")
-        else:
-            print("No se encontraron 'id_usuario' duplicados.")
-    else:
-        print("Advertencia: La columna 'id_usuario' no se encontró en el DataFrame. No se eliminaron duplicados.")
+# =======================
+# SIDEBAR - FILTROS
+# =======================
+st.sidebar.header("📊 Filtros")
 
-    print("Limpieza del dataset finalizada.")
-    # display(df.head()) # Removido para mantener la salida concisa en este paso de preparación
-    # display(df.info()) # Removido para mantener la salida concisa en este paso de preparación
-else:
-    print("El DataFrame está vacío, no se puede realizar la limpieza.")
-if not df.empty:
-    display(df.head())
-else:
-    print("No se pueden mostrar las primeras filas, el DataFrame está vacío (posiblemente porque 'datos.csv' no fue encontrado).")
-import matplotlib.pyplot as plt
-import seaborn as sns
+# Filtro de país
+paises = ['Todos'] + sorted(df['pais'].unique().tolist())
+pais_seleccionado = st.sidebar.selectbox("País", paises)
 
-# Establecer un estilo visual profesional
-sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (10, 6)
-plt.rcParams['font.size'] = 12
-plt.rcParams['axes.labelsize'] = 12
-plt.rcParams['axes.titlesize'] = 14
-plt.rcParams['xtick.labelsize'] = 10
-plt.rcParams['ytick.labelsize'] = 10
+# Filtro de tipo de suscripción
+suscripciones = ['Todos'] + sorted(df['tipo_suscripcion'].unique().tolist())
+suscripcion_seleccionada = st.sidebar.selectbox("Tipo de Suscripción", suscripciones)
 
-if not df.empty:
-    subscription_counts = df['tipo_suscripcion'].value_counts()
-    plt.figure(figsize=(9, 9))
-    plt.pie(subscription_counts, labels=subscription_counts.index, autopct='%1.1f%%', startangle=90, colors=sns.color_palette("viridis", len(subscription_counts)))
-    plt.title('Distribución de Tipos de Suscripción')
-    plt.axis('equal') # Para asegurar que el pastel sea un círculo.
-    plt.tight_layout()
-    plt.show()
-else:
-    print("El DataFrame está vacío, no se puede generar el gráfico de pastel de suscripciones.")
-if not df.empty:
-    # Para este análisis, podemos ver la relación entre horas de escucha y si están inactivos
-    # Convertiremos 'bandera_inactivo_3_meses' a una etiqueta para el gráfico.
-    df['estado_churn'] = df['bandera_inactivo_3_meses'].apply(lambda x: 'Inactivo (+3 meses)' if x == 1 else 'Activo / Inactivo (<3 meses)')
+# Filtro de rango de edad
+edad_min, edad_max = st.sidebar.slider("Rango de Edad", 
+                                        int(df['edad'].min()), 
+                                        int(df['edad'].max()), 
+                                        (int(df['edad'].min()), int(df['edad'].max())))
 
-    plt.figure(figsize=(12, 7))
-    sns.scatterplot(
-        data=df,
-        x='horas_escucha_promedio_por_semana',
-        y='meses_inactivo',
-        hue='estado_churn', # Usamos la nueva columna para diferenciar por color
-        palette={'Activo / Inactivo (<3 meses)': 'green', 'Inactivo (+3 meses)': 'red'},
-        alpha=0.6,
-        s=50 # Tamaño de los puntos
+# Aplicar filtros
+df_filtrado = df.copy()
+
+if pais_seleccionado != 'Todos':
+    df_filtrado = df_filtrado[df_filtrado['pais'] == pais_seleccionado]
+
+if suscripcion_seleccionada != 'Todos':
+    df_filtrado = df_filtrado[df_filtrado['tipo_suscripcion'] == suscripcion_seleccionada]
+
+df_filtrado = df_filtrado[(df_filtrado['edad'] >= edad_min) & (df_filtrado['edad'] <= edad_max)]
+
+# =======================
+# MÉTRICAS PRINCIPALES
+# =======================
+st.sidebar.divider()
+st.sidebar.subheader("📈 Resumen de Datos")
+st.sidebar.metric("Total de Usuarios", len(df_filtrado))
+st.sidebar.metric("Usuarios Activos", (df_filtrado['estado_suscripcion'] == 'Active').sum())
+st.sidebar.metric("Tasa de Conversión", 
+                  f"{(df_filtrado['conversion_anuncio_a_suscripcion'] == 'Yes').sum() / len(df_filtrado) * 100:.1f}%")
+
+# =======================
+# MÉTRICAS KPI
+# =======================
+st.header("📊 Métricas Principales")
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    usuarios_activos = (df_filtrado['estado_suscripcion'] == 'Active').sum()
+    st.metric("Usuarios Activos", usuarios_activos)
+
+with col2:
+    edad_promedio = df_filtrado['edad'].mean()
+    st.metric("Edad Promedio", f"{edad_promedio:.1f} años")
+
+with col3:
+    horas_promedio = df_filtrado['horas_escucha_promedio_por_semana'].mean()
+    st.metric("Horas Escucha/Semana", f"{horas_promedio:.2f}h")
+
+with col4:
+    playlists_promedio = df_filtrado['playlists_creadas'].mean()
+    st.metric("Playlists Promedio", f"{playlists_promedio:.1f}")
+
+with col5:
+    calificacion_promedio = df_filtrado['calificacion_sugerencia_musica_1_a_5'].mean()
+    st.metric("Calificación Promedio", f"{calificacion_promedio:.2f}/5")
+
+st.divider()
+
+# =======================
+# ROW 1: GRÁFICOS PRINCIPALES
+# =======================
+st.header("📈 Análisis Detallado")
+
+col1, col2 = st.columns(2)
+
+# Gráfico 1: Distribución por Tipo de Suscripción
+with col1:
+    st.subheader("Usuarios por Tipo de Suscripción")
+    suscripcion_counts = df_filtrado['tipo_suscripcion'].value_counts()
+    fig1 = px.pie(
+        values=suscripcion_counts.values,
+        names=suscripcion_counts.index,
+        color_discrete_sequence=px.colors.qualitative.Set2
     )
-    plt.title('Horas de Escucha vs Meses de Inactividad por Estado de Churn')
-    plt.xlabel('Horas de Escucha Promedio por Semana')
-    plt.ylabel('Meses Inactivo')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    plt.show()
+    fig1.update_layout(height=400)
+    st.plotly_chart(fig1)
 
-    # Eliminamos la columna temporal
-    df.drop(columns=['estado_churn'], inplace=True)
-else:
-    print("El DataFrame está vacío, no se puede generar el gráfico de dispersión.")
-if not df.empty:
-    # Asumimos que 'meses_inactivo' puede indicar el momento del churn
-    # Si 'meses_inactivo' es > 0, el usuario está inactivo.
-    churned_users = df[df['meses_inactivo'] > 0]
+# Gráfico 2: Estado de Suscripción
+with col2:
+    st.subheader("Estado de Suscripción")
+    estado_counts = df_filtrado['estado_suscripcion'].value_counts()
+    colors_estado = ['#1DB954', '#FF6B6B']  # Verde Spotify, Rojo
+    fig2 = px.bar(
+        x=estado_counts.index,
+        y=estado_counts.values,
+        color=estado_counts.index,
+        color_discrete_map={'Active': '#1DB954', 'Inactive': '#FF6B6B'},
+        labels={'x': 'Estado', 'y': 'Cantidad'}
+    )
+    fig2.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig2)
 
-    if not churned_users.empty:
-        plt.figure(figsize=(10, 6))
-        sns.histplot(churned_users['meses_inactivo'], bins=range(1, int(churned_users['meses_inactivo'].max()) + 2), kde=False, color='darkorange')
-        plt.title('Distribución de Meses Inactivo (para Usuarios Inactivos)')
-        plt.xlabel('Meses Inactivo (aproximación del mes de abandono)')
-        plt.ylabel('Número de Usuarios')
-        plt.xticks(range(1, int(churned_users['meses_inactivo'].max()) + 1))
-        plt.tight_layout()
-        plt.show()
-    else:
-        print("No hay usuarios inactivos para analizar el patrón de abandono por meses.")
-else:
-    print("El DataFrame está vacío, no se puede generar el histograma de churn.")
-if not df.empty:
-    # Asumimos que 'meses_inactivo' puede indicar el momento del churn
-    # Si 'meses_inactivo' es > 0, el usuario está inactivo.
-    churned_users = df[df['meses_inactivo'] > 0]
+# =======================
+# ROW 2: ANÁLISIS DE COMPORTAMIENTO
+# =======================
+col1, col2 = st.columns(2)
 
-    if not churned_users.empty:
-        plt.figure(figsize=(10, 6))
-        sns.histplot(churned_users['meses_inactivo'], bins=range(1, int(churned_users['meses_inactivo'].max()) + 2), kde=False, color='darkorange')
-        plt.title('Distribución de Meses Inactivo (para Usuarios Inactivos)')
-        plt.xlabel('Meses Inactivo (aproximación del mes de abandono)')
-        plt.ylabel('Número de Usuarios')
-        plt.xticks(range(1, int(churned_users['meses_inactivo'].max()) + 1))
-        plt.tight_layout()
-        plt.show()
-    else:
-        print("No hay usuarios inactivos para analizar el patrón de abandono por meses.")
+# Gráfico 3: Distribución de Edad
+with col1:
+    st.subheader("Distribución de Edad")
+    fig3 = px.histogram(
+        df_filtrado,
+        x='edad',
+        nbins=30,
+        color_discrete_sequence=['#1DB954']
+    )
+    fig3.update_layout(height=400, xaxis_title="Edad", yaxis_title="Cantidad de Usuarios")
+    st.plotly_chart(fig3)
+
+# Gráfico 4: Horas de Escucha por Semana
+with col2:
+    st.subheader("Horas de Escucha Promedio por Semana")
+    fig4 = px.box(
+        df_filtrado,
+        y='horas_escucha_promedio_por_semana',
+        color_discrete_sequence=['#1DB954']
+    )
+    fig4.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig4)
+
+# =======================
+# ROW 3: GÉNEROS Y DISPOSITIVOS
+# =======================
+col1, col2 = st.columns(2)
+
+# Gráfico 5: Top Géneros Favoritos
+with col1:
+    st.subheader("Top 10 Géneros Favoritos")
+    generos_top = df_filtrado['genero_favorito'].value_counts().head(10)
+    fig5 = px.bar(
+        x=generos_top.values,
+        y=generos_top.index,
+        orientation='h',
+        color_discrete_sequence=['#1DB954']
+    )
+    fig5.update_layout(height=400, xaxis_title="Cantidad", yaxis_title="Género")
+    st.plotly_chart(fig5)
+
+# Gráfico 6: Dispositivos Principales
+with col2:
+    st.subheader("Dispositivos Principales Utilizados")
+    dispositivos = df_filtrado['dispositivo_principal'].value_counts()
+    fig6 = px.pie(
+        values=dispositivos.values,
+        names=dispositivos.index,
+        color_discrete_sequence=px.colors.qualitative.Pastel
+    )
+    fig6.update_layout(height=400)
+    st.plotly_chart(fig6)
+
+# =======================
+# ROW 4: INTERACCIONES Y CONVERSIONES
+# =======================
+col1, col2 = st.columns(2)
+
+# Gráfico 7: Interacción con Anuncios vs Conversión
+with col1:
+    st.subheader("Interacción vs Conversión de Anuncios")
+    interaction_conversion = pd.crosstab(
+        df_filtrado['interaccion_anuncio'],
+        df_filtrado['conversion_anuncio_a_suscripcion']
+    )
+    fig7 = px.bar(
+        interaction_conversion,
+        barmode='group',
+        color_discrete_sequence=['#FF6B6B', '#1DB954']
+    )
+    fig7.update_layout(height=400, xaxis_title="Interacción", yaxis_title="Cantidad")
+    st.plotly_chart(fig7)
+
+# Gráfico 8: Calificación de Sugerencias Musicales
+with col2:
+    st.subheader("Distribución de Calificaciones (1-5)")
+    calificaciones = df_filtrado['calificacion_sugerencia_musica_1_a_5'].value_counts().sort_index()
+    fig8 = px.bar(
+        x=calificaciones.index,
+        y=calificaciones.values,
+        color=calificaciones.index,
+        color_discrete_sequence=px.colors.sequential.Viridis,
+        labels={'x': 'Calificación', 'y': 'Cantidad'}
+    )
+    fig8.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig8)
+
+# =======================
+# ROW 5: CARACTERÍSTICAS Y SALTOS
+# =======================
+col1, col2 = st.columns(2)
+
+# Gráfico 9: Características más Gustadas
+with col1:
+    st.subheader("Top 8 Características Preferidas")
+    caracteristicas = df_filtrado['caracteristica_mas_gustada'].value_counts().head(8)
+    fig9 = px.bar(
+        x=caracteristicas.values,
+        y=caracteristicas.index,
+        orientation='h',
+        color_discrete_sequence=['#1DB954']
+    )
+    fig9.update_layout(height=400, xaxis_title="Cantidad")
+    st.plotly_chart(fig9)
+
+# Gráfico 10: Scatter - Horas Escucha vs Saltos
+with col2:
+    st.subheader("Horas de Escucha vs Saltos por Día")
+    fig10 = px.scatter(
+        df_filtrado.sample(min(1000, len(df_filtrado))),
+        x='horas_escucha_promedio_por_semana',
+        y='saltos_promedio_por_dia',
+        color='calificacion_sugerencia_musica_1_a_5',
+        size='playlists_creadas',
+        hover_data=['edad', 'tipo_suscripcion'],
+        color_continuous_scale='Viridis'
+    )
+    fig10.update_layout(height=400)
+    st.plotly_chart(fig10)
+
+# =======================
+# ROW 6: TOP PAÍSES Y ESTADO INACTIVOS
+# =======================
+col1, col2 = st.columns(2)
+
+# Gráfico 11: Top Países
+with col1:
+    st.subheader("Top 12 Países con más Usuarios")
+    paises_top = df_filtrado['pais'].value_counts().head(12)
+    fig11 = px.bar(
+        x=paises_top.values,
+        y=paises_top.index,
+        orientation='h',
+        color_discrete_sequence=['#1DB954']
+    )
+    fig11.update_layout(height=400, xaxis_title="Cantidad", yaxis_title="País")
+    st.plotly_chart(fig11)
+
+# Gráfico 12: Actividad por Meses Inactivos
+with col2:
+    st.subheader("Usuarios por Meses Inactivos")
+    inactivos = df_filtrado['meses_inactivo'].value_counts().sort_index()
+    fig12 = px.bar(
+        x=inactivos.index,
+        y=inactivos.values,
+        color_discrete_sequence=['#FF6B6B'],
+        labels={'x': 'Meses Inactivo', 'y': 'Cantidad'}
+    )
+    fig12.update_layout(height=400)
+    st.plotly_chart(fig12)
+
+st.divider()
+
+# =======================
+# TABLA DE DATOS
+# =======================
+st.header("🗂️ Datos Detallados")
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    filtro_estado = st.selectbox("Filtrar por Estado", ['Todos', 'Active', 'Inactive'], key='estado_tabla')
+with col2:
+    mostrar_registros = st.slider("Registros a mostrar", 5, 100, 20)
+with col3:
+    st.empty()
+
+if filtro_estado != 'Todos':
+    df_tabla = df_filtrado[df_filtrado['estado_suscripcion'] == filtro_estado].head(mostrar_registros)
 else:
-    print("El DataFrame está vacío, no se puede generar el histograma de churn.")
+    df_tabla = df_filtrado.head(mostrar_registros)
+
+st.dataframe(
+    df_tabla.select_dtypes(include=['object', 'int64', 'float64']),
+    height=400
+)
